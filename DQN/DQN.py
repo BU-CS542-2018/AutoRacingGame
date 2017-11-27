@@ -26,14 +26,15 @@ Tensor = FloatTensor
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
 ACTIONS = [[("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", False)],\
+           [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
+           [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", False)],\
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\
-           [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
-           [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)]]
-ACTION_NUM = 8
+ACTION_NUM = 3
+HIDDEN_SIZE = 120
 
 # Memory replay from pytorch tutorial
 class ReplayMemory(object):
@@ -63,19 +64,22 @@ class DQN(nn.Module):
     """
     def __init__(self):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size = 5, stride = 2)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size = 3, stride = 2)
         self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride = 2)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride = 2)
         self.bn2 = nn.BatchNorm2d(32)
         self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride = 2)
         self.bn3 = nn.BatchNorm2d(32)
-        self.head = nn.Linear(320, ACTION_NUM)
+        self.hid1 = nn.Linear(1600, HIDDEN_SIZE)
+        self.unlf = F.softplus
+        self.head = nn.Linear(HIDDEN_SIZE, ACTION_NUM)
         
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
-        return self.head(x.view(x.size(0), -1))
+        x = self.head(self.unlf(self.hid1(x.view(x.size(0), -1))))
+        return x
 
   
         
