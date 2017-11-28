@@ -75,7 +75,7 @@ class DQN(nn.Module):
         self.conv3 = nn.Conv2d(in_channels = 64, out_channels = 64, kernel_size = 3, stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(64)
         #FC layer
-        self.hid1 = nn.Linear(441, HIDDEN_SIZE)
+        self.hid1 = nn.Linear(64, HIDDEN_SIZE)
         self.unlf = F.relu
         self.head = nn.Linear(HIDDEN_SIZE, ACTION_NUM)
         
@@ -83,7 +83,7 @@ class DQN(nn.Module):
         conv1 = F.relu(self.bn1(self.conv1(x)))
         conv2 = F.relu(self.bn2(self.conv2(conv1)))
         conv3 = F.relu(self.bn3(self.conv3(conv2)))
-        linear = self.head(self.unlf(self.hid1(conv3.view(conv3.size(0), -1))))
+        linear = self.head(self.unlf(self.hid1(conv3.view(-1, conv3.size(2)))))
         return x
 
   
