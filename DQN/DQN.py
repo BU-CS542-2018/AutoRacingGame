@@ -71,7 +71,7 @@ class DQN(nn.Module):
         self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride = 2)
         self.bn3 = nn.BatchNorm2d(32)
         self.hid1 = nn.Linear(1600, HIDDEN_SIZE)
-        self.unlf = F.softplus
+        self.unlf = F.relu
         self.head = nn.Linear(HIDDEN_SIZE, ACTION_NUM)
         
     def forward(self, x):
