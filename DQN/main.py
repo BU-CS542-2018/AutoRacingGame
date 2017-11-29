@@ -18,7 +18,7 @@ from DQN import *
 from statsmodels import duration
 
 RESUME = True # When this is True, try to reload last saving point. If got any error in loading, start over and create a new checkpoint
-TEST = True # When TEST is true, run the game use the network only, no random to affect the result. Optimizer stop update during this
+TEST = False # When TEST is true, run the game use the network only, no random to affect the result. Optimizer stop update during this
 filename = "./local_training.pth.tar"
 
 # Use model set at DQN.py, model have 4 output
@@ -61,10 +61,14 @@ GAMMA = 0.99 # Used for expectation decay
 EPS_START = 0.95 # using epsilon-greedy algorithm, with this probability to take random step
 EPS_END = 0.10 # At the end of training, probability to take random step is quite small
 EPS_DECAY = 1000000 # Epsilon decay in exponential speed. Set the decay speed
+punishment = -3
 model_update = 1
 
 reward_change = []
+final_rewards= []
+last_reward= 0
 last_sync = 0
+last_time = time.time()
 optimizer = optim.RMSprop(model.parameters())
 RESIZE = T.Compose([T.ToPILImage(),
                     T.Scale(64, interpolation=Image.CUBIC),
@@ -102,6 +106,7 @@ def plot_durations():
     '''
     Plot training result
     '''
+    global final_rewards
     plt.figure(1)
     plt.clf()
     durations_t = torch.FloatTensor(episode_duration)
@@ -129,13 +134,25 @@ def plot_durations():
     plt.subplot(2, 2, 4)
     plt.xlabel("Time")
     plt.ylabel("Reward Change")
-    plt.plot([i[0] for i in reward_change], [i[1] for i in reward_change])
-    
+    real_rewards = [i[1] for i in reward_change]
+    max_read_rewards = max(real_rewards)
+    min_read_rewards = min(real_rewards)
+    read_reards_length = max_read_rewards-min_read_rewards+1
+    if not TEST:
+        designed_rewards = [i[1] for i in final_rewards]
+        max_designed_rewards = max(designed_rewards)
+        min_designed_rewards = min(designed_rewards)
+        designed_rewards_length = max_designed_rewards-min_designed_rewards+1
+        plt.plot([i[0] for i in reward_change], [i/read_reards_length for i in real_rewards], "b", \
+                 [i[0] for i in final_rewards], [i/designed_rewards_length for i in designed_rewards], "r")
+    else:
+        plt.plot([i[0] for i in reward_change], [i/read_reards_length for i in real_rewards], "b")
     plt.pause(0.001)
 
 def optimize_model():
     """ERROR"""
     global last_sync
+    global punishment
     if len(memory) < BATCH_SIZE:
         # Waiting until there are enough sample to update model
         return 
@@ -180,13 +197,12 @@ def get_screen():
 # def translate_action(actions):
 #     return [[('KeyEvent', key[0], key[1]==1) for key in zip(('ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'), actions)]]
 
-last_reward= 0
-last_time = time.time()
 def reward_cal(reward_n, state=None):
     ################################
     # Use log of average speed as a reward, speed_reward
     global last_time
     global last_reward 
+    global punishment
     speed_reward = 0
     inlane_reward = 0
     nocrash_reward = 0
@@ -199,33 +215,37 @@ def reward_cal(reward_n, state=None):
     speed_reward = np.log(speed_reward+1) 
     ################################
     # Use out of lane detection as a reward, use this block only when state is not None, inlane_reward
-    if type(state) in [torch.FloatTensor, torch.LongTensor, torch.ByteTensor, torch.cuda.FloatTensor, torch.cuda.LongTensor, torch.cuda.ByteTensor]:
-        if use_cuda:
-            img = state[0].cpu().numpy().transpose((1, 2, 0))
-        else:
-            img = state[0].numpy().transpose((1, 2, 0))
+    if type(state) in [torch.FloatTensor, torch.LongTensor, torch.ByteTensor]:
+        img = state[0].numpy().transpose((1, 2, 0))
+    elif type(state) in [torch.cuda.FloatTensor, torch.cuda.LongTensor, torch.cuda.ByteTensor]:
+        img = state[0].cpu().numpy().transpose((1, 2, 0))
+    elif type(state) in [np.ndarray]:
+        img = state
+    else:
+        img = 0
+        
+    if not isinstance(img, int):
         detect_block = img[420:450, 262:538]
-        distance_list = [np.linalg.norm(np.cross(detect_block[i][j]-np.array((0, 0, 0)), detect_block[i][j]-np.array((1, 1, 1))))/np.sqrt(3) for i in range(len(detect_block)) for j in range(len(detect_block[0]))]
-        threshold = 15
-        print(distance_list)
-        percentage_overthreshold = 100*len([i for i in distance_list if i > threshold])/len(distance_list)
+        threshold = 15/255
+        distance_list = (np.linalg.norm(np.cross(detect_block-np.array((0, 0, 0)), detect_block-np.array((1, 1, 1))), axis=2)/np.sqrt(3)).flatten()
+        percentage_overthreshold = 100*len(np.extract(distance_list>threshold, distance_list))/len(distance_list)
         if percentage_overthreshold > 20:
             # if over 20, car get out of lane
-            inlane_reward = -2
+            inlane_reward = punishment/2
         else:
-            inlane_reward = 0.5
+            inlane_reward = -punishment/2
     ################################
     # Use crash detection as a reward, nocrash_reward
     for r in reward_n:
         # Allow normal slow down, like slow down caused by left or right button
         if r>last_reward-50:
             # no punishment
-            nocrash_reward = 0.1
+            nocrash_reward = -punishment/2
         else:
             # Crash happened
-            nocrash_reward = -2
+            nocrash_reward = punishment/2
         last_reward = r
-    
+    #print(speed_reward, inlane_reward, nocrash_reward, "current punishment: ", punishment)
     #final_reward = speed_reward + inlane_reward + nocrash_reward
     final_reward = inlane_reward
     return final_reward 
@@ -268,9 +288,12 @@ if __name__ == "__main__":
     env = gym.make('flashgames.DuskDrive-v0')
     env.configure(remotes=1)  # automatically creates a local docker container
     observation_n = env.reset()
+    
     while True:
         total_reward = 0
         reward_change =[]
+        final_rewards = []
+        
         action_n = [[('KeyEvent', 'ArrowUp', True)] for ob in observation_n]  # your agent here
         observation_n, reward_n, done_n, info = env.step(action_n)
         # observation_n: [{'vision':..., 'text':[]}] length of list is number of frame we observed
@@ -298,7 +321,9 @@ if __name__ == "__main__":
                 
                 reward = reward_cal(reward_n, raw_state)
                 total_reward += sum(reward_n)
-                reward_change.append((time.time(), sum(reward_n)))
+                current_time= time.time()
+                reward_change.append((current_time, sum(reward_n)))
+                final_rewards.append((current_time, reward))
                 done = done_n[-1]
                 if not done:
                     # Get new observation
@@ -326,9 +351,15 @@ if __name__ == "__main__":
                 if done:
                     if TEST:
                         Learning_score.append(total_reward)
+                        TEST=False
                     else:
                         episode_duration.append(t+1)
                         episode_score.append(total_reward)
+                        # Update reward? Testing
+#                         if punishment > -10 and punishment < 10:
+#                             punishment-=sum([i[1] for i in final_rewards] )/len(final_rewards)
+#                         print("New punishement: ", punishment)
+                        TEST= False
                     plot_durations()
                     break
                 
@@ -345,6 +376,7 @@ if __name__ == "__main__":
                 torch.save(checkpoint, filename)
                 print("Episode ", len(episode_duration), " saved to ", filename)
             
+            # Run a test use data generated by network only every 20 rounds
             if (len(episode_duration)+len(Learning_score)) % 20 == 0:
                 TEST = True
             else:
