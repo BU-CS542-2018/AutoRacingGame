@@ -28,17 +28,16 @@ Tensor = FloatTensor
 # Setting some global variables
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
-ACTIONS = [[("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", False)],\
-           [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
-           [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\
-           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", False)],\
-           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
-           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\
-           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
-           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)]]
-ACTION_NUM = 8
+
+ACTIONS = [[("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", False)],\  #up
+           [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\   #upleft
+           [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\   #upright
+           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\   #right
+           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)]]    #left
+ACTION_NUM = 5
 HIDDEN_SIZE = 512
 
+#---------------------------------------------------------------------------------------
 # Memory replay from pytorch tutorial
 class ReplayMemory(object):
     """
@@ -60,7 +59,7 @@ class ReplayMemory(object):
     
     def __len__(self):
         return len(self.memory)
-    
+#---------------------------------------------------------------------------------------    
 class DQN(nn.Module):
     """
     The model for training
@@ -75,7 +74,7 @@ class DQN(nn.Module):
         self.conv3 = nn.Conv2d(in_channels = 64, out_channels = 64, kernel_size = 3, stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(64)
         #FC layer
-        self.hid1 = nn.Linear(64, HIDDEN_SIZE)
+        self.hid1 = nn.Linear(7744, HIDDEN_SIZE)
         self.unlf = F.relu
         self.head = nn.Linear(HIDDEN_SIZE, ACTION_NUM)
         
@@ -83,8 +82,8 @@ class DQN(nn.Module):
         conv1 = F.relu(self.bn1(self.conv1(x)))
         conv2 = F.relu(self.bn2(self.conv2(conv1)))
         conv3 = F.relu(self.bn3(self.conv3(conv2)))
-        linear = self.head(self.unlf(self.hid1(conv3.view(-1, conv3.size(2)))))
-        return x
+        linear = self.head(self.unlf(self.hid1(conv3.view(conv3.size(0),-1))))
+        return linear
 
   
         

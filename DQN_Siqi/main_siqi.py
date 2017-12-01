@@ -23,8 +23,10 @@ import time
 from PIL import Image
 from itertools import count
 
-from DQN import *
+from DQN_siqi import *
 from statsmodels import duration
+import Filters
+from collections import deque
 
 RESUME = True # When this is True, try to reload last saving point. If got any error in loading, start over and create a new checkpoint
 TEST = True # When TEST is true, run the game use the network only, no random to affect the result. Optimizer stop update during this
@@ -75,10 +77,8 @@ model_update = 1
 reward_change = []
 last_sync = 0
 optimizer = optim.RMSprop(model.parameters())
-RESIZE = T.Compose([T.ToPILImage(),
-                    T.Scale(64, interpolation=Image.CUBIC),
-                    T.ToTensor()])
-
+#RESIZE = T.Compose([T.ToPILImage(),T.ToTensor()])
+#---------------------------------------------------------------------------------------
 def select_action(state):
     '''
     input state and use epsilon-greedy algorithm to select actions to take
@@ -106,7 +106,7 @@ def select_action(state):
         max_result = result.max(1)
         print("Random select ", rs, ", network choose ", max_result[1].view(1, 1)[0][0], " with score ", max_result[0].view(1, 1)[0][0])
         return LongTensor([[rs]])
-
+#---------------------------------------------------------------------------------------
 def plot_durations():
     '''
     Plot training result
@@ -141,7 +141,7 @@ def plot_durations():
     plt.plot([i[0] for i in reward_change], [i[1] for i in reward_change])
     
     plt.pause(0.001)
-
+#---------------------------------------------------------------------------------------
 def optimize_model():
     """ERROR"""
     global last_sync
@@ -177,28 +177,38 @@ def optimize_model():
         for param in model.parameters():
             param.grad.data.clamp_(-1, 1)
         optimizer.step()
-    
-def get_screen():
-    screen = env.render(mode="rgb_array")
+#---------------------------------------------------------------------------------------  
+def get_screen(observation_n):
+    """    screen = env.render(mode="rgb_array")
     # cut out the game image
     screen = screen[84:596, 18:818]
     # turn to float tensor
     screen = np.ascontiguousarray(screen, dtype = np.float32) / 255
     return screen
-    
-# def translate_action(actions):
-#     return [[('KeyEvent', key[0], key[1]==1) for key in zip(('ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'), actions)]]
+    """
+    """
+    Input: observation_n is a list
+    """
+    # some notes
+    # 1.observation is a list and the observation is in the [0] laction
+    # 2.observation[0] starts off with Nonetype and will become a dictionary once the agent
+    #   gets to play the game.
+    # 3.the dictionary only has two pair of key-value: text(usually empty) and vision
+    if(observation_n[0] != None):
+        screen = Filters.obsFilter(observation_n)
+        return screen
 
-last_reward= 0
-last_time = time.time()
+#---------------------------------------------------------------------------------------
+#last_reward= 0
+#last_time = time.time()
 def reward_cal(reward_n, state=None):
     ################################
     # Use log of average speed as a reward, speed_reward
-    global last_time
-    global last_reward 
+    #global last_time
+    #global last_reward 
     speed_reward = 0
-    inlane_reward = 0
-    nocrash_reward = 0
+    #inlane_reward = 0
+    #nocrash_reward = 0
     
     for r in reward_n:
         speed_reward += r
@@ -206,6 +216,7 @@ def reward_cal(reward_n, state=None):
     last_time = time.time()
     # Speed reward won't be too large, from 0 to 4+
     speed_reward = np.log(speed_reward+1) 
+    """
     ################################
     # Use out of lane detection as a reward, use this block only when state is not None, inlane_reward
     if type(state) in [torch.FloatTensor, torch.LongTensor, torch.ByteTensor, torch.cuda.FloatTensor, torch.cuda.LongTensor, torch.cuda.ByteTensor]:
@@ -234,25 +245,27 @@ def reward_cal(reward_n, state=None):
             # Crash happened
             nocrash_reward = -2
         last_reward = r
-    
+    """    
     #final_reward = speed_reward + inlane_reward + nocrash_reward
-    final_reward = inlane_reward
+    final_reward = speed_reward
     return final_reward 
-
+#---------------------------------------------------------------------------------------
 def transform_nparray2tensor(screen):
     """
     Turn a numpy.array screen matrix to float tensor
     INPUT:
-        screen {numpy.ndarray}: 3-channel screen image Height*Width*Channel(3)
+        screen {numpy.ndarray}: 4-channel screen image Height*Width*Channel()
     OUTPUT:
-        result {FloatTensor}: C*H*W tensor image
+        result {FloatTensor}: B*C*H*W tensor image
     """
     # Transpose the image
-    screen = screen.transpose((2, 0, 1)) # (channel, height, width)
-    screen = torch.from_numpy(screen)
-    result = RESIZE(screen).unsqueeze(0).type(Tensor)
-    return result
-
+    #convert to float tensor
+    screen = np.ascontiguousarray(screen, dtype = np.float32) 
+    screen = torch.from_numpy(screen)           #this screen is a tensor now
+    #result = RESIZE(screen)
+    screen = screen.unsqueeze(0).type(Tensor)
+    return screen
+#---------------------------------------------------------------------------------------
 def get_state(last_screen, current_screen):
     """
     INPUT:
@@ -272,12 +285,32 @@ def get_state(last_screen, current_screen):
 #     cs_white = cs_rot / np.sqrt(S + 1e-5)
     cs_t = cs_mean
     return cs_t
-
+#---------------------------------------------------------------------------------------
+def convertToNdarray(image_queue):
+    """
+    INPUT:
+        image_queue {collections.deque}: size of 4 queue storeing 4 100x100  images
+    OUTPUT:
+	raw_state {numpy.ndarray}: state, 4X100x100
+    """
+    raw_state = np.zeros((4,100,100))
+    raw_state[0,:,:] = image_queue[0]
+    raw_state[1,:,:] = image_queue[1]
+    raw_state[2,:,:] = image_queue[2]
+    raw_state[3,:,:] = image_queue[3]
+    return raw_state
+#---------------------------------------------------------------------------------------
+"""
+main function
+"""
 if __name__ == "__main__":
     env = gym.make('flashgames.DuskDrive-v0')
     env.configure(remotes=1)  # automatically creates a local docker container
     observation_n = env.reset()
+    
     while True:
+        #container
+        image_queue = deque()
         total_reward = 0
         reward_change =[]
         action_n = [[('KeyEvent', 'ArrowUp', True)] for ob in observation_n]  # your agent here
@@ -290,30 +323,41 @@ if __name__ == "__main__":
         # If observation_n[-1] is still None, environment is not ready
         if(observation_n[-1] != None):
             # A new episode start
-            last_screen = get_screen()
-            current_screen = get_screen()
+            #get initial frame
+            screen = get_screen(observation_n)
+            # we want to store 4 frames as history
+            image_queue.append(screen)
+            image_queue.append(screen)
+            image_queue.append(screen)
+            image_queue.append(screen)
+            #last_screen = get_screen(observation_n)
+            #current_screen = get_screen(observation_n)
+            raw_state = convertToNdarray(image_queue)
             start_flag = True
             done = False
-            raw_state = get_state(last_screen, current_screen)
-            state = transform_nparray2tensor(raw_state)
-            
+            #raw_state = get_state(last_screen, current_screen)
+            #transform pixel to tensor state
+            state = transform_nparray2tensor(raw_state)	
             # Loop for this episode
             for t in count():
                 action_flag = select_action(state)
                 action = [ACTIONS[action_flag[0][0]] for rw in reward_n]
                 
                 # Input actions to environment
-                _, reward_n, done_n, _  = env.step(action)
+                observation_n, reward_n, done_n, _  = env.step(action)
                 
-                reward = reward_cal(reward_n, raw_state)
+                reward = sum(reward_n)#reward_cal(reward_n, raw_state)
                 total_reward += sum(reward_n)
                 reward_change.append((time.time(), sum(reward_n)))
                 done = done_n[-1]
                 if not done:
-                    # Get new observation
-                    last_screen = current_screen
-                    current_screen = get_screen()
-                    next_raw_state = get_state(last_screen, current_screen)
+                    # Get new observation                    
+                    current_screen = get_screen(observation_n)
+		    # rearrange history
+                    image_queue.append(current_screen)
+                    image_queue.popleft()
+                    #get new raw pixel state
+                    next_raw_state = convertToNdarray(image_queue)
                     next_state = transform_nparray2tensor(next_raw_state)
                 else:
                     print("End of one episode")
@@ -325,8 +369,7 @@ if __name__ == "__main__":
                 # Move to next state
                 state = next_state
                 raw_state = next_raw_state
-                #plt.imshow(state.cpu().numpy()[-1].transpose(1, 2, 0))
-                
+                #plt.imshow(state.cpu().numpy()[-1].transpose(1, 2, 0))             
                 
                 env.render()
                 
@@ -357,8 +400,7 @@ if __name__ == "__main__":
             if (len(episode_duration)+len(Learning_score)) % 20 == 0:
                 TEST = True
             else:
-                TEST = False
-            
+                TEST = False           
             
         # If not ready, keep update until ready for training.
         # If finished training done, update and prepare for next episode
