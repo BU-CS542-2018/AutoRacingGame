@@ -20,6 +20,7 @@ from statsmodels import duration
 RESUME = True # When this is True, try to reload last saving point. If got any error in loading, start over and create a new checkpoint
 TEST = False # When TEST is true, run the game use the network only, no random to affect the result. Optimizer stop update during this
 filename = "./local_training.pth.tar"
+best_filename = "./currently_best.pth.tar"
 
 # Use model set at DQN.py, model have 4 output
 if RESUME:
@@ -38,6 +39,7 @@ if not RESUME:
     Learning_score = []
     memory = ReplayMemory(10000)
     steps_done = 0
+    current_best_test_reward = 0
 else:
     model = DQN()
     if use_cuda:
@@ -48,12 +50,18 @@ else:
         episode_score = checkpoint['episode_score']
     except:
         episode_score = []
+    try:
+        current_best_test_reward = checkpoint["current_best_test_reward"]
+    except:
+        current_best_test_reward = 0
     if len(episode_score) < len(episode_duration):
         episode_score = [0 for _ in range(len(episode_duration)-len(episode_score))]+episode_score
     Learning_score = checkpoint['Learning_score']
     memory = checkpoint['memory']
     steps_done = checkpoint['steps_done']
     print("Loaded model, start from episode ", len(episode_duration))
+    print("Current Best test result is ", current_best_test_reward)
+    time.sleep(5)
     
 # Some global variables
 BATCH_SIZE = 250 # used for experience pool based training
@@ -64,12 +72,15 @@ EPS_DECAY = 1000000 # Epsilon decay in exponential speed. Set the decay speed
 punishment = -3
 model_update = 1
 
+# Global but only used in episode variables. 
 reward_change = []
 final_rewards= []
+last_frames = []
+last_frames_to_save = 4
 last_reward= 0
 last_sync = 0
 last_time = time.time()
-optimizer = optim.RMSprop(model.parameters())
+optimizer = optim.RMSprop(model.parameters(), lr=0.0001)
 RESIZE = T.Compose([T.ToPILImage(),
                     T.Scale(64, interpolation=Image.CUBIC),
                     T.ToTensor()])
@@ -191,7 +202,7 @@ def get_screen():
     # cut out the game image
     screen = screen[84:596, 18:818]
     # turn to float tensor
-    screen = np.ascontiguousarray(screen, dtype = np.float32) / 255
+    # screen = np.ascontiguousarray(screen, dtype = np.float32) / 255
     return screen
     
 # def translate_action(actions):
@@ -233,21 +244,21 @@ def reward_cal(reward_n, state=None):
             # if over 20, car get out of lane
             inlane_reward = punishment/2
         else:
-            inlane_reward = -punishment/2
+            inlane_reward = 0
     ################################
     # Use crash detection as a reward, nocrash_reward
     for r in reward_n:
         # Allow normal slow down, like slow down caused by left or right button
         if r>last_reward-50:
             # no punishment
-            nocrash_reward = -punishment/2
+            nocrash_reward = 0
         else:
             # Crash happened
             nocrash_reward = punishment/2
         last_reward = r
     #print(speed_reward, inlane_reward, nocrash_reward, "current punishment: ", punishment)
-    #final_reward = speed_reward + inlane_reward + nocrash_reward
-    final_reward = inlane_reward
+    final_reward = speed_reward + inlane_reward + nocrash_reward
+    #final_reward = inlane_reward
     return final_reward 
 
 def transform_nparray2tensor(screen):
@@ -258,30 +269,45 @@ def transform_nparray2tensor(screen):
     OUTPUT:
         result {FloatTensor}: C*H*W tensor image
     """
+    # resize screen
+    screen = cv2.resize(screen, (100, 64), interpolation=cv2.INTER_LINEAR)
+    # turn to float tensor
+    screen = np.ascontiguousarray(screen, dtype = np.float32) / 255
     # Transpose the image
     screen = screen.transpose((2, 0, 1)) # (channel, height, width)
-    screen = torch.from_numpy(screen)
-    result = RESIZE(screen).unsqueeze(0).type(Tensor)
+    result = torch.from_numpy(screen)
+    # Turn 3D tensor to 4D tensor (NCHW, number of inputs, channels, height, width)
+    result=result.unsqueeze(0).type(Tensor)
+#     result = RESIZE(screen).unsqueeze(0).type(Tensor)
     return result
 
-def get_state(last_screen, current_screen):
+def get_state(last_screen, current_screen, observation_n=[]):
     """
     INPUT:
         last_screen {numpy.ndarray}: last screen image
         current_screen {numpy.ndarray}: current_screen image
+        observation_n {[{'vision':..., 'text':...}, ...]}: (Optional) observations
     OUTPUT:
         state_screen {numpy.ndarray}: state screen. In raw image size
     """
     global steps_done
+    global last_frames_to_save
+    global last_frames
     # centralize and normalize image 
     cs_mean = current_screen - np.mean(current_screen) # Avoid lighting problem
-    # cs_norm = cs_mean/np.std(current_screen) # Because 3-channel already in same scale, no need to do so
-    # PCA-Whitening, not used here
-#     cov = np.dot(current_screen.T, current_screen)/current_screen.shape[0]
-#     U, S, V = np.linalg.svd(cov)
-#     cs_rot = np.dot(current_screen, U)
-#     cs_white = cs_rot / np.sqrt(S + 1e-5)
-    cs_t = cs_mean
+    # Get last few frames
+    if len(observation_n) >= last_frames_to_save-1:
+        last_frames = [ob['vision'][84:596, 18:818] for ob in observation_n[(-last_frames_to_save+1):]]+[current_screen]
+    else:
+        last_frames = last_frames[-(last_frames_to_save-1-len(observation_n)):]+[ob['vision'][84:596, 18:818] for ob in observation_n]+[current_screen]
+    # Get road segmentation
+    road_segmentation=np.linalg.norm(np.cross(current_screen-np.array((0, 0, 0)), current_screen-np.array((1, 1, 1))), axis=2)/np.sqrt(3)
+    _, road_segmentation=cv2.threshold(road_segmentation, 15, 255, cv2.THRESH_BINARY)
+    road_segmentation=cv2.dilate(road_segmentation, np.ones((2, 2), np.uint8), iterations=3)[..., None]
+    # Get canny channels
+    cys = [cv2.Canny(frame, 100, 180, L2gradient=True)[..., None] for frame in last_frames]
+    # Put them together
+    cs_t = np.concatenate([road_segmentation, cs_mean]+cys, axis=2)
     return cs_t
 
 if __name__ == "__main__":
@@ -293,6 +319,7 @@ if __name__ == "__main__":
         total_reward = 0
         reward_change =[]
         final_rewards = []
+        last_frames = []
         
         action_n = [[('KeyEvent', 'ArrowUp', True)] for ob in observation_n]  # your agent here
         observation_n, reward_n, done_n, info = env.step(action_n)
@@ -308,6 +335,7 @@ if __name__ == "__main__":
             current_screen = get_screen()
             start_flag = True
             done = False
+            last_frames = [np.zeros(current_screen.shape, dtype=np.uint8) for _ in range(last_frames_to_save) ]
             raw_state = get_state(last_screen, current_screen)
             state = transform_nparray2tensor(raw_state)
             
@@ -317,9 +345,9 @@ if __name__ == "__main__":
                 action = [ACTIONS[action_flag[0][0]] for rw in reward_n]
                 
                 # Input actions to environment
-                _, reward_n, done_n, _  = env.step(action)
+                observation_n, reward_n, done_n, _  = env.step(action)
                 
-                reward = reward_cal(reward_n, raw_state)
+                reward = reward_cal(reward_n, current_screen)
                 total_reward += sum(reward_n)
                 current_time= time.time()
                 reward_change.append((current_time, sum(reward_n)))
@@ -329,14 +357,15 @@ if __name__ == "__main__":
                     # Get new observation
                     last_screen = current_screen
                     current_screen = get_screen()
-                    next_raw_state = get_state(last_screen, current_screen)
+                    next_raw_state = get_state(last_screen, current_screen, observation_n)
                     next_state = transform_nparray2tensor(next_raw_state)
                 else:
                     print("End of one episode")
                     next_state = None
                 
                 # store to experience pool
-                memory.push(state, action_flag, next_state, FloatTensor([reward]).view(1, 1))
+                if not TEST:
+                    memory.push(state, action_flag, next_state, FloatTensor([reward]).view(1, 1))
                 
                 # Move to next state
                 state = next_state
@@ -351,6 +380,17 @@ if __name__ == "__main__":
                 if done:
                     if TEST:
                         Learning_score.append(total_reward)
+                        if total_reward > current_best_test_reward:
+                            current_best_test_reward = total_reward
+                            checkpoint = {"state_dict":model.state_dict(), \
+                                          "memory":memory, \
+                                          "steps_done":steps_done, \
+                                          "episode_score":episode_score,\
+                                          "Learning_score":Learning_score,\
+                                          "current_best_test_reward":current_best_test_reward, \
+                                          "episode_duration":episode_duration}
+                            torch.save(checkpoint, best_filename)
+                            print("Episode ", len(episode_duration), " saved to ", best_filename)
                         TEST=False
                     else:
                         episode_duration.append(t+1)
@@ -372,6 +412,7 @@ if __name__ == "__main__":
                               "steps_done":steps_done, \
                               "episode_score":episode_score,\
                               "Learning_score":Learning_score,\
+                              "current_best_test_reward":current_best_test_reward, \
                               "episode_duration":episode_duration}
                 torch.save(checkpoint, filename)
                 print("Episode ", len(episode_duration), " saved to ", filename)

@@ -34,7 +34,7 @@ ACTIONS = [[("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("Key
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)]]
 ACTION_NUM = 3
-HIDDEN_SIZE = 120
+HIDDEN_SIZE = 300
 
 # Memory replay from pytorch tutorial
 class ReplayMemory(object):
@@ -64,13 +64,13 @@ class DQN(nn.Module):
     """
     def __init__(self):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size = 3, stride = 2)
+        self.conv1 = nn.Conv2d(8, 16, kernel_size = 3, stride = 2)
         self.bn1 = nn.BatchNorm2d(16)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride = 2)
         self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride = 2)
-        self.bn3 = nn.BatchNorm2d(32)
-        self.hid1 = nn.Linear(1600, HIDDEN_SIZE)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=5, stride = 2)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.hid1 = nn.Linear(3200, HIDDEN_SIZE)
         self.unlf = F.relu
         self.head = nn.Linear(HIDDEN_SIZE, ACTION_NUM)
         
