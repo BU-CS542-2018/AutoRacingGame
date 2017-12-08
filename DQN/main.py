@@ -19,6 +19,7 @@ from statsmodels import duration
 
 RESUME = True # When this is True, try to reload last saving point. If got any error in loading, start over and create a new checkpoint
 TEST = False # When TEST is true, run the game use the network only, no random to affect the result. Optimizer stop update during this
+SAVE_VIDEO = False
 filename = "./local_training.pth.tar"
 best_filename = "./currently_best.pth.tar"
 
@@ -85,6 +86,17 @@ RESIZE = T.Compose([T.ToPILImage(),
                     T.Scale(64, interpolation=Image.CUBIC),
                     T.ToTensor()])
 
+def save_model(save_filename):
+    checkpoint = {"state_dict":model.state_dict(), \
+                  "memory":memory, \
+                  "steps_done":steps_done, \
+                  "episode_score":episode_score,\
+                  "Learning_score":Learning_score,\
+                  "current_best_test_reward":current_best_test_reward, \
+                  "episode_duration":episode_duration}
+    torch.save(checkpoint, save_filename)
+    print("Episode ", len(episode_duration), " saved to ", save_filename)
+    
 def select_action(state):
     '''
     input state and use epsilon-greedy algorithm to select actions to take
@@ -133,11 +145,11 @@ def plot_durations():
     plt.subplot(2, 2, 2)    
     plt.xlabel('Episode')
     plt.ylabel('TotalReward')
-    plt.plot(score_t.numpy())
+    plt.plot(score_t.numpy(), "b^")
     if len(score_t) >= 100:
         means = score_t.unfold(0, 100, 1).mean(1).view(-1)
         means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
+        plt.plot(means.numpy(), "r-")
     plt.subplot(2, 2, 3)    
     plt.xlabel('Episode')
     plt.ylabel('Test Result')
@@ -158,6 +170,8 @@ def plot_durations():
                  [i[0] for i in final_rewards], [i/designed_rewards_length for i in designed_rewards], "r")
     else:
         plt.plot([i[0] for i in reward_change], [i/read_reards_length for i in real_rewards], "b")
+    plt.draw()
+    plt.savefig("./result_plot.png", dpi=100)
     plt.pause(0.001)
 
 def optimize_model():
@@ -314,6 +328,8 @@ if __name__ == "__main__":
     env = gym.make('flashgames.DuskDrive-v0')
     env.configure(remotes=1)  # automatically creates a local docker container
     observation_n = env.reset()
+    if SAVE_VIDEO:
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
     
     while True:
         total_reward = 0
@@ -330,6 +346,9 @@ if __name__ == "__main__":
         
         # If observation_n[-1] is still None, environment is not ready
         if(observation_n[-1] != None):
+            # For output
+            if SAVE_VIDEO:
+                video_out = cv2.VideoWriter('output.avi',fourcc, 10.0, (800,512))
             # A new episode start
             last_screen = get_screen()
             current_screen = get_screen()
@@ -341,6 +360,8 @@ if __name__ == "__main__":
             
             # Loop for this episode
             for t in count():
+                if SAVE_VIDEO:
+                    video_out.write(current_screen[..., ::-1])
                 action_flag = select_action(state)
                 action = [ACTIONS[action_flag[0][0]] for rw in reward_n]
                 
@@ -363,7 +384,7 @@ if __name__ == "__main__":
                     print("End of one episode")
                     next_state = None
                 
-                # store to experience pool
+                # store to experience pool only if this episode is not in TEST mode
                 if not TEST:
                     memory.push(state, action_flag, next_state, FloatTensor([reward]).view(1, 1))
                 
@@ -382,15 +403,7 @@ if __name__ == "__main__":
                         Learning_score.append(total_reward)
                         if total_reward > current_best_test_reward:
                             current_best_test_reward = total_reward
-                            checkpoint = {"state_dict":model.state_dict(), \
-                                          "memory":memory, \
-                                          "steps_done":steps_done, \
-                                          "episode_score":episode_score,\
-                                          "Learning_score":Learning_score,\
-                                          "current_best_test_reward":current_best_test_reward, \
-                                          "episode_duration":episode_duration}
-                            torch.save(checkpoint, best_filename)
-                            print("Episode ", len(episode_duration), " saved to ", best_filename)
+                            save_model(best_filename)
                         TEST=False
                     else:
                         episode_duration.append(t+1)
@@ -407,15 +420,7 @@ if __name__ == "__main__":
         
             # Episode done, save model per 5 episode
             if len(episode_duration) % 5 == 0:
-                checkpoint = {"state_dict":model.state_dict(), \
-                              "memory":memory, \
-                              "steps_done":steps_done, \
-                              "episode_score":episode_score,\
-                              "Learning_score":Learning_score,\
-                              "current_best_test_reward":current_best_test_reward, \
-                              "episode_duration":episode_duration}
-                torch.save(checkpoint, filename)
-                print("Episode ", len(episode_duration), " saved to ", filename)
+                save_model(filename)
             
             # Run a test use data generated by network only every 20 rounds
             if (len(episode_duration)+len(Learning_score)) % 20 == 0:
@@ -423,7 +428,10 @@ if __name__ == "__main__":
             else:
                 TEST = False
             
-            
+            if SAVE_VIDEO:
+                video_out.release()
+                if total_reward > 400000:
+                    exit()
         # If not ready, keep update until ready for training.
         # If finished training done, update and prepare for next episode
         env.render()
