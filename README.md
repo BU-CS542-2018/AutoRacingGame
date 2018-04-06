@@ -16,7 +16,7 @@ It contains a basic implementation of the [A3C algorithm](https://arxiv.org/abs/
 * [numpy](https://pypi.python.org/pypi/numpy)
 * [scipy](https://pypi.python.org/pypi/scipy)
 
-`python train.py --num-workers 2 --env-id PongDeterministic-v3 --log-dir /tmp/pong
+`python train.py --num-workers 2 --env-id PongDeterministic-v3 --log-dir /tmp/pong`
 
 The command above will train an agent
 It will see two workers that will be learning in parallel (`--num-workers` flag) and will output intermediate results into given directory.
