@@ -10,14 +10,11 @@ It contains a basic implementation of the [A3C algorithm](https://arxiv.org/abs/
 * [tmux](https://tmux.github.io/) (the start script opens up a tmux session with multiple windows)
 * [htop](https://hisham.hm/htop/) (shown in one of the tmux windows)
 * [gym](https://pypi.python.org/pypi/gym)
-* gym[atari]
 * libjpeg-turbo (`brew install libjpeg-turbo`)
 * [universe](https://pypi.python.org/pypi/universe)
 * [opencv-python](https://pypi.python.org/pypi/opencv-python)
 * [numpy](https://pypi.python.org/pypi/numpy)
 * [scipy](https://pypi.python.org/pypi/scipy)
-
-## Atari Pong
 
 `python train.py --num-workers 2 --env-id PongDeterministic-v3 --log-dir /tmp/pong
 
