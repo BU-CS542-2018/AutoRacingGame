@@ -9,8 +9,8 @@ except ImportError:
     import tkinter as tk
 
 
-quit
-keyPressed = "Up"
+quit = False
+history = []
 ACTIONS = [[("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", False)],\
            [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
            [("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\
@@ -18,24 +18,51 @@ ACTIONS = [[("KeyEvent", "ArrowUp", True),("KeyEvent", "ArrowDown", False),("Key
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\
            [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", True),("KeyEvent", "ArrowRight", False)],\
-           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)]]
+           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", True),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", True)],\
+           [("KeyEvent", "ArrowUp", False),("KeyEvent", "ArrowDown", False),("KeyEvent", "ArrowLeft", False),("KeyEvent", "ArrowRight", False)]]
+
+
+
+def convertHistoryToKey():
+    key = ""
+    global history
+    if "Up" in history:
+        key = key + "Up"
+    elif "Down" in history:
+        key = key + "Down"
+        
+    if "Left" in history:
+        key = key + "Left"
+    elif "Right" in history:
+        key = key + "Right"
+
+    return key
 
 
 def getActionFromKeyPress():
-    global keyPressed
+    keyPressed = convertHistoryToKey()
+
     global ACTIONS
     if keyPressed == "Up":
         return ACTIONS[0]
     elif keyPressed == "Left":
-        #return ACTIONS[4]      #Left
-        return ACTIONS[1]       #Up and left
+        return ACTIONS[4]
     elif keyPressed == "Right":
-        #return ACTIONS[5]      #Right
-        return ACTIONS[2]       #Up and right
+        return ACTIONS[5]
     elif keyPressed == "Down":
         return ACTIONS[3]
+    elif keyPressed == "UpLeft":
+        return ACTIONS[1]
+    elif keyPressed == "UpRight":
+        return ACTIONS[2]
+    elif keyPressed == "DownLeft":
+        return ACTIONS[6]
+    elif keyPressed == "DownRight":
+        return ACTIONS[7] 
     
-    return ACTIONS[0]
+    #Do nothing
+    return ACTIONS[8]
+
 
 def runCarGame():
     env = gym.make('flashgames.DuskDrive-v0')
@@ -52,43 +79,54 @@ def runCarGame():
         env.render()
 
 
-def key(event):
-    """shows key or tk code for the key"""
-    if event.keysym == 'Escape':
+def keyup(event):
+    kP = str(event.keysym)
+    if kP == 'Escape':
         global quit
         quit = True
         root.destroy()
     
-    kP = str(event.keysym)
-    if kP == "Up" or kP == "Down" or kP == "Left" or kP == "Right":
-        global keyPressed
-        keyPressed = str(event.keysym)
-    
-        
+    global history
+    if kP in history :
+        history.pop(history.index(kP))
 
-quit = False
+
+def keydown(event):
+    kP = str(event.keysym)
+    if kP == 'Escape':
+        global quit
+        quit = True
+        root.destroy()
+    
+    if kP == "Up" or kP == "Down" or kP == "Left" or kP == "Right":
+        global history
+        if not kP in history :
+            history.append(kP)
+
+
 
 #Start up the car game 
 task = runCarGame
 t = threading.Thread(target=task)
 t.start()
 
-
 #Start up a GUI that can conveniently get keyboard input
 root = tk.Tk()
-root.bind_all('<Key>', key)
+root.bind("<KeyPress>", keydown)
+root.bind("<KeyRelease>", keyup)
 
 info = ("Welcome to the Racing Game!\n\n"
-        "Controls:\n"
-        "Use arrow keys (don't have to hold down the key)\n"
+        "Use arrow keys to control car\n"
         "Exit with Esc key\n"
-        "\nNOTE: This screen must be in focus to play\n"
+        "\nNOTE: This window must be in focus to play\n"
         )
 l = tk.Label(root, font=("Helvetica", 20), text=info)
 l.pack()
 
 root.mainloop()
 
+
+#Wait for the game thread to also quit when pressing Esc
 t.join();
 
 
