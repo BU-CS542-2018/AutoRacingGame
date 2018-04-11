@@ -59,9 +59,11 @@ def key(event):
         quit = True
         root.destroy()
     
-    global keyPressed
-    keyPressed = str(event.keysym)
-    #print(keyPressed)
+    kP = str(event.keysym)
+    if kP == "Up" or kP == "Down" or kP == "Left" or kP == "Right":
+        global keyPressed
+        keyPressed = str(event.keysym)
+    
         
 
 quit = False
